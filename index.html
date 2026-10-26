@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEGIS // Offline Emergency Safe-Router</title>
+    <!-- Application Stylesheet -->
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body class="aegis-app">
+    <!-- Area A: Tactical Header -->
+    <header class="app-header">
+        <div class="brand-block">
+            <div class="brand-title-row">
+                <span class="brand-radar-pulse"></span>
+                <h1 class="brand-title">AEGIS // Offline Emergency Safe-Router</h1>
+                <span class="badge-air-gapped">100% ZERO-WAN</span>
+                <span class="badge-gemma">LOCAL GEMMA-4 AI</span>
+            </div>
+            <p class="brand-subtext">Air-Gapped Autonomous Incident Navigation &bull; Synchronous Graph Engine &bull; Local AI Dispatch</p>
+        </div>
+
+        <div class="header-status-metrics">
+            <div class="status-metric-card" title="Network isolation state">
+                <span class="metric-key">LINK:</span>
+                <span class="metric-val text-green">AIR-GAPPED</span>
+            </div>
+            <div class="status-metric-card" title="Local AI model state">
+                <span class="metric-key">AI:</span>
+                <span class="metric-val text-cyan">GEMMA-4 (LOCAL)</span>
+            </div>
+            <div class="status-metric-card" title="Active route distance">
+                <span class="metric-key">PATH:</span>
+                <span class="metric-val text-yellow" id="header-distance-badge">18 KM</span>
+            </div>
+            <div class="status-metric-card" title="Count of designated hazard obstacles">
+                <span class="metric-key">HAZARDS:</span>
+                <span class="metric-val text-red" id="header-hazards-count">0 ACTIVE</span>
+            </div>
+            <button id="btn-quick-demo-toggle" class="btn-demo-action" title="Run 90-Second Demo: Click to inject hazard at North Bridge">
+                <span>&#9888;</span> DEMO: Inject North Bridge Hazard
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace (SVG Map Viewport + Dispatch Sidebar) -->
+    <div class="dashboard-workspace">
+        
+        <!-- Area B: Full Viewport SVG Map -->
+        <main class="map-viewport">
+            
+            <!-- Map Overlay Controls -->
+            <div class="map-top-bar">
+                <div class="map-view-meta">
+                    <span class="view-tag">TACTICAL SECTOR GRID</span>
+                    <span class="view-hint">Click any node or corridor to toggle hazard state</span>
+                </div>
+                <div class="map-action-group">
+                    <button id="btn-reset-hazards" class="btn-map-control" title="Clear all active obstacles and restore baseline corridors">
+                        <span>&#8635;</span> Clear All Hazards
+                    </button>
+                    <button id="btn-recenter-view" class="btn-map-control" title="Reset map zoom & pan view">
+                        <span>&#8865;</span> Center View
+                    </button>
+                </div>
+            </div>
+
+            <!-- Edge Fail-Safe Banner (Appears when destination is completely unreachable) -->
+            <div id="edge-failsafe-banner" class="edge-failsafe-banner hidden">
+                <div class="failsafe-content">
+                    <span class="failsafe-icon">&#9888;</span>
+                    <div class="failsafe-text">
+                        <strong>CRITICAL FAIL-SAFE: NO SAFE EVACUATION CORRIDOR AVAILABLE</strong>
+                        <p>All bridge crossings and access corridors to this destination are blocked by active hazards. Traversal algorithm halted safely with zero crash.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SVG Vector Engine -->
+            <div class="svg-container" id="svg-map-wrapper">
+                <svg id="aegis-map-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Tactical Municipal Map">
+                    <defs>
+                        <!-- Grid Pattern -->
+                        <pattern id="tactical-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#132038" stroke-width="0.8" />
+                        </pattern>
+
+                        <!-- Glowing Active Route Filter -->
+                        <filter id="route-glow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="4" result="blur" />
+                            <feMerge>
+                                <feMergeNode in="blur" />
+                                <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                        </filter>
+
+                        <!-- Hazard Warning Glow -->
+                        <filter id="hazard-glow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="5" result="blur" />
+                            <feMerge>
+                                <feMergeNode in="blur" />
+                                <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                        </filter>
+                    </defs>
+
+                    <!-- Background & Grid -->
+                    <rect width="1000" height="600" fill="#080e1a" />
+                    <rect width="1000" height="600" fill="url(#tactical-grid)" />
+
+                    <!-- River & Sector Geography -->
+                    <path class="river-backdrop" d="M 520,0 C 500,120 540,240 500,360 C 470,450 510,540 490,600 L 590,600 C 610,540 570,450 600,360 C 640,240 600,120 620,0 Z" />
+                    <text x="545" y="30" class="river-label" text-anchor="middle">METRO WATERWAY // RIVER BARRIER</text>
+
+                    <!-- Sector Watermark Labels -->
+                    <text x="240" y="560" class="sector-watermark" text-anchor="middle">WEST INLAND SECTOR</text>
+                    <text x="800" y="560" class="sector-watermark" text-anchor="middle">EAST HAVEN SECTOR</text>
+
+                    <!-- Corridors Group (Lines) -->
+                    <g id="svg-corridors-layer"></g>
+
+                    <!-- Active Route Glow Layer -->
+                    <g id="svg-active-route-layer"></g>
+
+                    <!-- Municipal Nodes Group (Clickable Pins & Badges) -->
+                    <g id="svg-nodes-layer"></g>
+                </svg>
+            </div>
+
+            <!-- Floating Collapsible Symbology Legend -->
+            <div id="symbology-legend" class="map-symbology-legend">
+                <div class="legend-header" id="legend-toggle-btn">
+                    <span class="legend-title">Symbology &amp; Protocol</span>
+                    <span class="legend-chevron" id="legend-chevron">&minus;</span>
+                </div>
+                <div class="legend-body" id="legend-body">
+                    <div class="legend-row">
+                        <span class="swatch-line swatch-clear"></span>
+                        <span>Clear Transit Corridor</span>
+                    </div>
+                    <div class="legend-row">
+                        <span class="swatch-line swatch-active"></span>
+                        <span>Optimal Safe Route</span>
+                    </div>
+                    <div class="legend-row">
+                        <span class="swatch-line swatch-hazard"></span>
+                        <span>Hazard Obstacle (Impassable)</span>
+                    </div>
+                    <div class="legend-row">
+                        <span class="swatch-icon icon-hq">&#9872;</span>
+                        <span>Emergency HQ (Origin)</span>
+                    </div>
+                    <div class="legend-row">
+                        <span class="swatch-icon icon-shelter">&#128737;</span>
+                        <span>Safe Haven Shelter</span>
+                    </div>
+                    <div class="legend-row">
+                        <span class="swatch-icon icon-bridge">&#127753;</span>
+                        <span>River Bridge Crossing</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Area C: Tactical Dispatch Sidebar -->
+        <aside class="dispatch-sidebar">
+            
+            <!-- Section 1: Route Planning Card -->
+            <section class="sidebar-card">
+                <div class="card-header">
+                    <h2 class="card-title">Evacuation Dispatcher</h2>
+                    <span class="badge-status-ready" id="badge-route-status">CALCULATED</span>
+                </div>
+
+                <div class="dispatch-selectors">
+                    <div class="form-row">
+                        <label for="select-origin" class="input-label">Origin (Default: HQ)</label>
+                        <select id="select-origin" class="tactical-select">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="form-row">
+                        <label for="select-destination" class="input-label">Destination (Default: Shelter A)</label>
+                        <select id="select-destination" class="tactical-select">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="btn-action-row">
+                        <button id="btn-calculate-route" class="btn-calculate-primary">
+                            <span>&#10148;</span> Recalculate Path
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Distance & Status Display -->
+                <div id="route-telemetry-box" class="telemetry-box">
+                    <div class="telemetry-header">
+                        <span class="telemetry-label">TRAVERSAL DISTANCE</span>
+                        <span class="telemetry-dist-val" id="telemetry-dist-val">18 KM</span>
+                    </div>
+                    <div class="telemetry-corridor-name" id="telemetry-corridor-name">
+                        Primary Corridor via North Bridge
+                    </div>
+                    <div class="waypoint-strip" id="waypoint-strip">
+                        <!-- Step by step breadcrumb -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 2: Local AI Incident Dispatcher (Gemma-4) -->
+            <section class="sidebar-card ai-dispatcher-card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <span class="ai-spark-icon">&#10022;</span> Local AI Incident Dispatcher
+                    </h2>
+                    <span class="badge-ai-model">GEMMA-4</span>
+                </div>
+                <p class="section-help-text">Type field report in ordinary language. Gemma-4 extracts hazard, location, and severity for review:</p>
+
+                <div class="ai-input-wrapper">
+                    <textarea id="ai-report-input" class="tactical-textarea" rows="3" placeholder="e.g., 'Flash flooding is overtopping barriers at North Bridge, water is 4 feet deep and current is dangerous, road impassable.'"></textarea>
+                    
+                    <div class="ai-chips-row">
+                        <span class="chips-label">Quick Reports:</span>
+                        <button class="ai-chip-btn" data-text="Flash flooding is overtopping the barriers at North Bridge, depth around 4 feet, completely blocked for vehicles.">North Bridge Flood (18km &rarr; 21km)</button>
+                        <button class="ai-chip-btn" data-text="Overturned burning chemical tanker near Central Hospital, thick toxic smoke, all access roads blocked.">Central Hospital Fire (5km blocked)</button>
+                        <button class="ai-chip-btn" data-text="Downed power lines and heavy debris reported at South Causeway, hazardous sparks, road closed.">South Causeway Debris</button>
+                        <button class="ai-chip-btn" data-text="Chemical transport accident at Midtown Junction causing toxic spill, detour traffic immediately.">Midtown Spill</button>
+                    </div>
+
+                    <button id="btn-ai-analyze" class="btn-ai-analyze">
+                        <span class="ai-btn-icon">&#128065;</span> Analyze Report with Gemma-4
+                    </button>
+                </div>
+
+                <!-- Human-in-the-Loop Review Card -->
+                <div id="ai-review-card" class="ai-review-card hidden">
+                    <div class="review-header">
+                        <span class="review-title">AI Incident Review Card</span>
+                        <span class="review-severity-badge" id="ai-review-severity">CRITICAL</span>
+                    </div>
+
+                    <div class="review-grid">
+                        <div class="review-item">
+                            <span class="r-label">Extracted Hazard:</span>
+                            <strong class="r-val" id="ai-review-hazard-type">Flooding</strong>
+                        </div>
+                        <div class="review-item">
+                            <span class="r-label">Target Location:</span>
+                            <strong class="r-val" id="ai-review-location">North Bridge (node_north_bridge)</strong>
+                        </div>
+                        <div class="review-item">
+                            <span class="r-label">Recommended Action:</span>
+                            <strong class="r-val text-red" id="ai-review-action">BLOCK_NODE (Impassable)</strong>
+                        </div>
+                    </div>
+
+                    <div class="review-summary" id="ai-review-summary">
+                        Summary extracted by local Gemma-4 model.
+                    </div>
+
+                    <!-- Gemma-4 Tactical Route Advisory Box -->
+                    <div class="review-advisory-box">
+                        <div class="advisory-badge-row">
+                            <span class="advisory-badge">&#10022; GEMMA-4 TACTICAL ROUTE ADVISORY</span>
+                            <span class="advisory-impact-tag" id="ai-review-impact-tag">REROUTE REQUIRED</span>
+                        </div>
+                        <p class="advisory-text" id="ai-review-tactical-advisory">
+                            Evaluating hazard against active route mission...
+                        </p>
+                        <div class="advisory-route-diff">
+                            <div class="diff-chip diff-blocked">
+                                <span class="diff-label">BLOCKED ROUTE</span>
+                                <strong class="diff-val" id="ai-review-blocked-desc">--</strong>
+                            </div>
+                            <div class="diff-arrow">&rarr;</div>
+                            <div class="diff-chip diff-safe">
+                                <span class="diff-label">SAFEST ALTERNATIVE</span>
+                                <strong class="diff-val" id="ai-review-safe-desc">--</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="review-action-row">
+                        <button id="btn-confirm-ai-hazard" class="btn-confirm-hazard">
+                            &#10003; Confirm &amp; Apply Hazard
+                        </button>
+                        <button id="btn-dismiss-ai-hazard" class="btn-dismiss-hazard">
+                            &times; Dismiss
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 3: Hazard Injection & Obstacle Ledger -->
+            <section class="sidebar-card">
+                <div class="card-header">
+                    <h2 class="card-title">Obstacle State Filter (O(1))</h2>
+                    <span class="obstacle-counter" id="obstacle-counter-pill">0 Blocked</span>
+                </div>
+                <p class="section-help-text">Click a crossing below or on the map to inject obstacles:</p>
+
+                <div class="hazard-buttons-grid">
+                    <button id="btn-toggle-north-bridge" class="btn-hazard-toggle" data-node="node_north_bridge">
+                        <span class="node-state-dot"></span>
+                        <span class="node-btn-label">North Bridge</span>
+                        <span class="node-btn-status">CLEAR</span>
+                    </button>
+                    <button id="btn-toggle-south-causeway" class="btn-hazard-toggle" data-node="node_south_causeway">
+                        <span class="node-state-dot"></span>
+                        <span class="node-btn-label">South Causeway</span>
+                        <span class="node-btn-status">CLEAR</span>
+                    </button>
+                </div>
+
+                <div class="incident-ledger-container">
+                    <span class="ledger-header">INCIDENT TRAVERSAL LOG</span>
+                    <div id="incident-ledger" class="incident-ledger">
+                        <div class="ledger-entry">
+                            <span class="ledger-time">[00:00]</span>
+                            <span class="ledger-msg">System initialized. Zero external requests detected.</span>
+                        </div>
+                        <div class="ledger-entry">
+                            <span class="ledger-time">[00:01]</span>
+                            <span class="ledger-msg">Baseline route computed: HQ &rarr; East Shelter A (18 km).</span>
+                        </div>
+                        <div class="ledger-entry">
+                            <span class="ledger-time">[00:02]</span>
+                            <span class="ledger-msg">Local Gemma-4 model interface connected via FastAPI / Ollama.</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 4: Shelter Capacity Metrics -->
+            <section class="sidebar-card">
+                <div class="card-header">
+                    <h2 class="card-title">Shelter Capacity Metrics</h2>
+                    <span class="badge-capacity">MONITORED</span>
+                </div>
+
+                <div class="shelter-capacity-list">
+                    <div class="shelter-capacity-card" id="card-shelter-a">
+                        <div class="shelter-info-row">
+                            <strong class="shelter-name">East Shelter A (Civic Arena)</strong>
+                            <span class="shelter-pct text-yellow">74% Full</span>
+                        </div>
+                        <div class="progress-bar-track">
+                            <div class="progress-bar-fill" style="width: 74%;"></div>
+                        </div>
+                        <div class="shelter-details-row">
+                            <span>1,850 / 2,500 Evacuees</span>
+                            <span class="power-status text-green">&bull; Solar Microgrid Active</span>
+                        </div>
+                    </div>
+
+                    <div class="shelter-capacity-card" id="card-shelter-b">
+                        <div class="shelter-info-row">
+                            <strong class="shelter-name">East Shelter B (Highland Sanctuary)</strong>
+                            <span class="shelter-pct text-cyan">60% Full</span>
+                        </div>
+                        <div class="progress-bar-track">
+                            <div class="progress-bar-fill" style="width: 60%;"></div>
+                        </div>
+                        <div class="shelter-details-row">
+                            <span>720 / 1,200 Evacuees</span>
+                            <span class="power-status text-green">&bull; Auxiliary Power Ready</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 5: Dedicated window.print() Evacuation Manifest Generator -->
+            <section class="sidebar-card print-action-card">
+                <button id="btn-export-manifest" class="btn-export-manifest">
+                    <span class="print-icon">&#128438;</span> Export Evacuation Manifest (Print Slip)
+                </button>
+                <span class="print-subtext">Generates clean printable route clearance manifest for field units</span>
+            </section>
+
+        </aside>
+    </div>
+
+    <!-- Printable Manifest Template (Visible ONLY during window.print()) -->
+    <div id="printable-manifest" class="printable-manifest-slip">
+        <div class="manifest-header">
+            <div class="manifest-agency">AEGIS TACTICAL DISPATCH // DISASTER EMERGENCY MANAGEMENT</div>
+            <div class="manifest-title">OFFICIAL FIELD EVACUATION ROUTE CLEARANCE MANIFEST</div>
+            <div class="manifest-meta-row">
+                <span>SECURITY CLASSIFICATION: <strong>EMERGENCY FIELD CLEARANCE</strong></span>
+                <span>AUTHENTICATION: <strong>AIR-GAPPED SYNCHRONOUS HASH</strong></span>
+                <span id="manifest-print-timestamp">TIMESTAMP: 2026-10-26 13:10:00</span>
+            </div>
+        </div>
+
+        <div class="manifest-body">
+            <div class="manifest-summary-grid">
+                <div class="manifest-grid-item">
+                    <span class="m-label">ORIGIN DISPATCH POINT:</span>
+                    <strong class="m-val" id="manifest-origin-name">Emergency HQ</strong>
+                </div>
+                <div class="manifest-grid-item">
+                    <span class="m-label">EVACUATION DESTINATION:</span>
+                    <strong class="m-val" id="manifest-dest-name">East Shelter A</strong>
+                </div>
+                <div class="manifest-grid-item">
+                    <span class="m-label">TOTAL ROUTE DISTANCE:</span>
+                    <strong class="m-val" id="manifest-total-distance">18 KM</strong>
+                </div>
+                <div class="manifest-grid-item">
+                    <span class="m-label">STATUS PROTOCOL:</span>
+                    <strong class="m-val text-green" id="manifest-clearance-status">VERIFIED CLEAR // ZERO DETOUR</strong>
+                </div>
+            </div>
+
+            <div class="manifest-itinerary-section">
+                <h3>CONVOY WAYPOINT ITINERARY &amp; NAVIGATION ORDERS</h3>
+                <ol id="manifest-waypoints-list" class="manifest-waypoints-list">
+                    <!-- Populated dynamically -->
+                </ol>
+            </div>
+
+            <div class="manifest-hazards-section">
+                <h3>ACTIVE OBSTACLE EXCLUSION ZONES</h3>
+                <div id="manifest-hazard-notes">Zero active obstacles on primary corridor.</div>
+            </div>
+
+            <div class="manifest-advisory-section">
+                <h3>GEMMA-4 LOCAL AI TACTICAL ADVISORY &amp; ROUTE RATIONALE</h3>
+                <div id="manifest-ai-advisory" class="manifest-ai-advisory-box">
+                    Baseline corridor verified clear. Traversal algorithm confirms direct transit path.
+                </div>
+            </div>
+
+            <div class="manifest-footer">
+                <div class="sig-block">
+                    <div class="sig-line"></div>
+                    <span>DISPATCH COMMANDER SIGNATURE</span>
+                </div>
+                <div class="sig-block">
+                    <div class="sig-line"></div>
+                    <span>FIELD CONVOY LEAD ACKNOWLEDGMENT</span>
+                </div>
+                <div class="sig-block">
+                    <div class="sig-line"></div>
+                    <span>SHELTER RECEPTION STAMP</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script (ES Module) -->
+    <script type="module" src="./app.js"></script>
+</body>
+</html>

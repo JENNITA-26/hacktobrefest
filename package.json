@@ -1,0 +1,20 @@
+{
+  "name": "offline-emergency-map",
+  "version": "1.0.0",
+  "description": "Offline Emergency Map & Safe-Route Planner",
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "start": "py -m http.server 8000"
+  },
+  "keywords": [
+    "offline-map",
+    "emergency-planner",
+    "leaflet"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  }
+}
